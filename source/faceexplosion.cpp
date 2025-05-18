@@ -15,11 +15,18 @@
 #include <OP/OP_Operator.h>
 #include <OP/OP_OperatorTable.h>
 #include <OP/OP_AutoLockInputs.h>
+#include <PRM/PRM_Name.h>
+#include <PRM/PRM_Shared.h>
+#include <PRM/PRM_Template.h>
 #include <SOP/SOP_Error.h>
 #include <SOP/SOP_Node.h>
+#include <SYS/SYS_Math.h>
+#include <SYS/SYS_Types.h>
 #include <UT/UT_Error.h>
 #include <UT/UT_Interrupt.h>
 #include <UT/UT_VectorTypes.h>
+#include <UT/UT_Hash.h>
+#include <algorithm>
 
 /// Register new SOP node definition with Houdini plugin interface.
 void newSopOperator(OP_OperatorTable *table)
@@ -28,7 +35,7 @@ void newSopOperator(OP_OperatorTable *table)
         "FaceExplosion",
         "Face Explosion",
         SOP_FaceExplosion::create,
-        SOP_FaceExplosion::template_list,
+        SOP_FaceExplosion::params,
         1,
         1,
         nullptr
@@ -38,7 +45,7 @@ void newSopOperator(OP_OperatorTable *table)
 }
 
 /// Default node templated parameters.
-PRM_Template SOP_FaceExplosion::template_list[] = {
+PRM_Template SOP_FaceExplosion::params[] = {
     PRM_Template(
         PRM_STRING,
         1,
@@ -49,8 +56,8 @@ PRM_Template SOP_FaceExplosion::template_list[] = {
         0,
         SOP_Node::getGroupSelectButton(GA_GROUP_POINT)
     ),
-    PRM_Template(PRM_ORD, 1, &PRMorientName, 0, &PRMplaneMenu),
-    PRM_Template(PRM_DIRECTION, 3, &PRMdirectionName, PRMzaxisDefaults),
+    PRM_Template(PRM_FLT_J, 1, &PRM_DIST_NAME, PRMzeroDefaults),
+    PRM_Template(PRM_FLT_J, 1, &PRM_NOISE_NAME, PRMzeroDefaults),
     PRM_Template(),
 };
 
@@ -77,7 +84,6 @@ OP_Node* SOP_FaceExplosion::create(OP_Network *network, const char *name, OP_Ope
 /// Recook this node data and outputs.
 OP_ERROR SOP_FaceExplosion::cookMySop(OP_Context &context)
 {
-    printf("Cooking face expolosion\n");
     OP_AutoLockInputs inputs(this);
     if (inputs.lock(context) >= UT_ERROR_ABORT)
     {
@@ -92,6 +98,10 @@ OP_ERROR SOP_FaceExplosion::cookMySop(OP_Context &context)
     /// Grab access to this mesh data and its normal attributes.
     const GU_Detail *input_mesh = inputGeo(0, context);
     GA_ROHandleV3 input_pos_attrib = input_mesh->getP();
+
+    /// Fetch node parameter values.
+    fpreal distance = this->evalFloat(PRM_DIST_NAME, 0, context.getTime());
+    fpreal noise = this->evalFloat(PRM_NOISE_NAME, 0, context.getTime());
 
     /// Loop through all input primitives and build new output mesh data.
     for (GA_Iterator it(input_mesh->getPrimitiveRange()); !it.atEnd(); ++it)
@@ -112,6 +122,11 @@ OP_ERROR SOP_FaceExplosion::cookMySop(OP_Context &context)
         prim->evaluateNormalVector(normal, 0.5, 0.5);
         normal.normalize();
 
+        /// Noise.
+        const fpreal max_noise = 2.0;
+        uint seed = SYSpointerHash(prim);
+        fpreal rand = SYSfastRandom(seed) * noise;
+
         /// Loop through input prim points and create new set thats transformed along
         /// the normal vector.
         for (GA_Size i=0; i<prim->getVertexCount(); ++i)
@@ -122,7 +137,9 @@ OP_ERROR SOP_FaceExplosion::cookMySop(OP_Context &context)
 
             /// Append new point position.
             GA_Offset out_point_offset = this->gdp->appendPointOffset();
-            this->gdp->setPos3(out_point_offset, point + (normal * 2.0));
+            UT_Vector3 pos = point + (normal * (distance + rand * max_noise));
+
+            this->gdp->setPos3(out_point_offset, pos);
             out_normal_attrib.set(out_point_offset, normal);
 
             /// Add point to face primitive.
