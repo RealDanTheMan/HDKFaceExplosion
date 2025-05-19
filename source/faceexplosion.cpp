@@ -18,15 +18,16 @@
 #include <PRM/PRM_Name.h>
 #include <PRM/PRM_Shared.h>
 #include <PRM/PRM_Template.h>
+#include <PRM/PRM_Type.h>
 #include <SOP/SOP_Error.h>
 #include <SOP/SOP_Node.h>
 #include <SYS/SYS_Math.h>
 #include <SYS/SYS_Types.h>
+#include <UT/UT_BoundingBox.h>
 #include <UT/UT_Error.h>
 #include <UT/UT_Interrupt.h>
 #include <UT/UT_VectorTypes.h>
 #include <UT/UT_Hash.h>
-#include <algorithm>
 
 /// Register new SOP node definition with Houdini plugin interface.
 void newSopOperator(OP_OperatorTable *table)
@@ -58,6 +59,7 @@ PRM_Template SOP_FaceExplosion::params[] = {
     ),
     PRM_Template(PRM_FLT_J, 1, &PRM_DIST_NAME, PRMzeroDefaults),
     PRM_Template(PRM_FLT_J, 1, &PRM_NOISE_NAME, PRMzeroDefaults),
+    PRM_Template(PRM_ORD, 1, &PRM_NORMAL_NAME, PRMzeroDefaults, &PRM_NORMAL_MENU),
     PRM_Template(),
 };
 
@@ -93,15 +95,19 @@ OP_ERROR SOP_FaceExplosion::cookMySop(OP_Context &context)
     /// Since transforming triangle along their normals will split them, we need a new set
     /// of point goemetry point and normal data.
     this->gdp->clearAndDestroy();
-    GA_RWHandleV3 out_normal_attrib = GA_RWHandleV3(this->gdp->addFloatTuple(GA_ATTRIB_POINT, "N", 3));
 
     /// Grab access to this mesh data and its normal attributes.
     const GU_Detail *input_mesh = inputGeo(0, context);
+    UT_BoundingBox input_bbox;
+    input_mesh->getBBox(&input_bbox);
+
     GA_ROHandleV3 input_pos_attrib = input_mesh->getP();
+    GA_RWHandleV3 out_normal_attrib = GA_RWHandleV3(this->gdp->addFloatTuple(GA_ATTRIB_POINT, "N", 3));
 
     /// Fetch node parameter values.
     fpreal distance = this->evalFloat(PRM_DIST_NAME, 0, context.getTime());
     fpreal noise = this->evalFloat(PRM_NOISE_NAME, 0, context.getTime());
+    int normal_mode = this->evalInt(PRM_NORMAL_NAME, 0, context.getTime());
 
     /// Loop through all input primitives and build new output mesh data.
     for (GA_Iterator it(input_mesh->getPrimitiveRange()); !it.atEnd(); ++it)
@@ -117,10 +123,20 @@ OP_ERROR SOP_FaceExplosion::cookMySop(OP_Context &context)
         GEO_PrimPoly *out_poly = static_cast<GEO_PrimPoly *>(out_prim);
         out_poly->setSize(prim->getVertexCount());
 
-        /// Recalulate face normal vector.
+        /// Derive face normal vector.
         UT_Vector3 normal = UT_Vector3(0, 0, 0);
-        prim->evaluateNormalVector(normal, 0.5, 0.5);
-        normal.normalize();
+        switch (normal_mode)
+        {
+            case NORMAL_MODE_FACE:
+                prim->evaluateNormalVector(normal, 0.5, 0.5);
+                normal.normalize();
+                break;
+            case NORMAL_MODE_RADIAL:
+                UT_Vector3 center = prim->baryCenter();
+                normal = center - input_bbox.center();
+                normal.normalize();
+                break;
+        }
 
         /// Noise.
         const fpreal max_noise = 2.0;
