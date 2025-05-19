@@ -24,6 +24,7 @@
 #include <SYS/SYS_Math.h>
 #include <SYS/SYS_Types.h>
 #include <UT/UT_BoundingBox.h>
+#include <UT/UT_Color.h>
 #include <UT/UT_Error.h>
 #include <UT/UT_Interrupt.h>
 #include <UT/UT_VectorTypes.h>
@@ -42,6 +43,7 @@ void newSopOperator(OP_OperatorTable *table)
         nullptr
     );
 
+    op->setIconName("SOP_facet");
     table->addOperator(op);
 }
 
@@ -68,7 +70,10 @@ SOP_FaceExplosion::SOP_FaceExplosion(OP_Network *network, const char *name, OP_O
     : SOP_Node(network, name, op),
       input_points(nullptr)  
 {
-
+    /// Set this node color.
+    UT_Color color;
+    color.setRGB(0.9f, 0.7f, 1.0f);
+    this->setColor(color);
 }
 
 /// Default SOP node destructor.
