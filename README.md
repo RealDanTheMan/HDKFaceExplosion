@@ -1,5 +1,7 @@
 # Houdini - Face Explosion
-Simple Houdini SOP node for transforming input mesh faces along their normal vector.
+Small code exercise in using Houdini SDK (HDK)
+
+*Face Explosion* is a simple Houdini SOP node for transforming input mesh faces along their normal vector.
 
 ---
 
